@@ -1,0 +1,7 @@
+# Python environment
+__pycache__/
+*.pyc
+
+# Secrets (ဒီဖိုင်တွေကို GitHub ပေါ် မတင်ပါနဲ့)
+mmtechlesson-4c42196bfedf.json
+.env
