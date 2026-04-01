@@ -2,3 +2,4 @@ gspread
 oauth2client
 python-telegram-bot
 flask
+pip install flask
