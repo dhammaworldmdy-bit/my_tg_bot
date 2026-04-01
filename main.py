@@ -10,8 +10,8 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 # Environment Variables ကနေ အချက်အလက်တွေ ယူမယ်
 TOKEN = os.getenv("BOT_TOKEN")
-SHEET_NAME = "Your_Sheet_Name_Here" # သင့် Google Sheet နာမည်ကို ဒီမှာ ပြင်ပါ
-ADMIN_URL = "https://t.me/Your_Admin_Username" # သင့် Telegram Username Link ကို ဒီမှာ ပြင်ပါ
+SHEET_NAME = "mmtechlesson" # သင့် Google Sheet နာမည်ကို ဒီမှာ ပြင်ပါ
+ADMIN_URL = "https://t.me/mmtestmdy_bot" # သင့် Telegram Username Link ကို ဒီမှာ ပြင်ပါ
 JSON_CREDS = os.getenv("GOOGLE_SHEETS_JSON")
 
 # Logging (Error တက်ရင် ကြည့်ဖို့)
