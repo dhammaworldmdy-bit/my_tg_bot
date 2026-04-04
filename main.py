@@ -2,92 +2,107 @@ import os
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 from flask import Flask
 from threading import Thread
 
-# --- Flask Server (Render Keep-Alive အတွက်) ---
+# --- Flask Server ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Bot is Alive!"
+def home(): return "Bot is Alive!"
 
 def run_web_server():
-    # Render ရဲ့ Dynamic Port ကို သုံးဖို့ os.environ.get သုံးရပါမယ်
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
 # --- Google Sheets Setup ---
-def get_gspread_client():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    # Render ရဲ့ Environment Variable (GOOGLE_SHEETS_JSON) ကနေ ဒေတာဖတ်ခြင်း
-    google_json_str = os.environ.get("GOOGLE_SHEETS_JSON")
-    
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+google_json_str = os.environ.get("GOOGLE_SHEETS_JSON")
+
+def get_sheet():
     if google_json_str:
-        # JSON စာသားကို Dictionary အဖြစ်ပြောင်းလဲခြင်း
         creds_dict = json.loads(google_json_str)
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        return gspread.authorize(creds)
     else:
-        # Local မှာ စမ်းသပ်နေစဉ်အတွက် (File ရှိလျှင်)
-        try:
-            return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_name("mmtechlesson-4c42196bfedf.json", scope))
-        except FileNotFoundError:
-            print("Error: GOOGLE_SHEETS_JSON variable or local file not found!")
-            return None
+        creds = ServiceAccountCredentials.from_json_keyfile_name("mmtechlesson-4c42196bfedf.json", scope)
+    client = gspread.authorize(creds)
+    return client.open("mmtechlesson").worksheet("Products")
 
-# Google Sheet ချိတ်ဆက်ခြင်း
-client = get_gspread_client()
-if client:
-    sheet = client.open("mmtechlesson")
-    product_sheet = sheet.worksheet("Products")
-else:
-    print("Warning: Could not connect to Google Sheets.")
+# --- Helper Function to get data ---
+def get_all_data():
+    sheet = get_sheet()
+    return sheet.get_all_records()
 
-# --- Telegram Bot Commands ---
+# --- Telegram Handlers ---
+
+# 1. /start နှိပ်ရင် Category ခလုတ်တွေပြမယ်
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("မင်္ဂလာပါ! Code Master Bot အဆင်သင့်ဖြစ်ပါပြီ။ /products လို့ ရိုက်ကြည့်ပါ။")
-
-async def get_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not client:
-        await update.message.reply_text("Database ချိတ်ဆက်မှု အဆင်မပြေဖြစ်နေပါသည်။")
-        return
-
-    all_products = product_sheet.get_all_records()
-    response = "📦 **Products List:**\n\n"
+    data = get_all_data()
+    # Unique ဖြစ်တဲ့ Categories တွေကို ယူမယ်
+    categories = sorted(list(set(str(item['Category']) for item in data if item.get('Category'))))
     
-    for item in all_products:
-        # Column Name တွေကို Spreadsheet ထဲကအတိုင်း (Name, Price) သေချာစစ်ပါ
-        name = item.get('Name', 'Unknown')
-        price = item.get('Price', '0')
-        response += f"🔹 {name} - {price} MMK\n"
+    keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat_{cat}")] for cat in categories]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(response, parse_mode='Markdown')
+    await update.message.reply_text("အမျိုးအစား ရွေးချယ်ပါ -", reply_markup=reply_markup)
 
-# --- Main Logic ---
+# 2. ခလုတ်နှိပ်လိုက်ရင် အဆင့်ဆင့်လုပ်ဆောင်မည့် Function
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data_list = get_all_data()
+    
+    parts = query.data.split("_")
+    action = parts[0] # cat, name, သို့မဟုတ် plan
+    value = parts[1]
+
+    # Category ရွေးပြီးရင် Name ပြမယ်
+    if action == "cat":
+        names = sorted(list(set(item['Name'] for item in data_list if str(item['Category']) == value)))
+        keyboard = [[InlineKeyboardButton(n, callback_data=f"name_{value}_{n}")] for n in names]
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_start")])
+        await query.edit_message_text(text=f"📌 {value} အောက်ရှိ Product များ -", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # Name ရွေးပြီးရင် Plan ပြမယ်
+    elif action == "name":
+        cat_val = parts[1]
+        name_val = parts[2]
+        plans = [item for item in data_list if str(item['Category']) == cat_val and str(item['Name']) == name_val]
+        
+        keyboard = [[InlineKeyboardButton(p['Plan'], callback_data=f"plan_{p['Category']}_{p['Name']}_{p['Plan']}")] for p in plans]
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"cat_{cat_val}")])
+        await query.edit_message_text(text=f"💳 {name_val} အတွက် Plan ရွေးချယ်ပါ -", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # Plan ရွေးပြီးရင် အသေးစိတ်စာသားပြမယ်
+    elif action == "plan":
+        cat_v, name_v, plan_v = parts[1], parts[2], parts[3]
+        # အချက်အလက်အကုန်တိုက်စစ်ပြီး ရှာမယ်
+        final_item = next((i for i in data_list if str(i['Category']) == cat_v and str(i['Name']) == name_v and str(i['Plan']) == plan_v), None)
+        
+        if final_item:
+            res = (f"✅ **{final_item['Name']}**\n"
+                   f"📝 {final_item.get('Des', 'No Description')}\n\n"
+                   f"🔹 Plan: {final_item['Plan']}\n"
+                   f"💰 Price: {final_item['Price']} MMK")
+            
+            keyboard = [[InlineKeyboardButton("⬅️ Back to Plans", callback_data=f"name_{cat_v}_{name_v}")]]
+            await query.edit_message_text(text=res, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+    # Back to Start
+    elif action == "back":
+        categories = sorted(list(set(str(item['Category']) for item in data_list)))
+        keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat_{cat}")] for cat in categories]
+        await query.edit_message_text("အမျိုးအစား ပြန်လည်ရွေးချယ်ပါ -", reply_markup=InlineKeyboardMarkup(keyboard))
+
 def main():
-    # Telegram Token ကို Render ရဲ့ Env Variable ကနေ ယူပါမယ်
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
-    
-    if not TOKEN:
-        print("Error: TELEGRAM_TOKEN not found in Environment Variables!")
-        return
-
-    # Application တည်ဆောက်ခြင်း
     application = ApplicationBuilder().token(TOKEN).build()
     
-    # Command များထည့်သွင်းခြင်း
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("products", get_products))
+    application.add_handler(CallbackQueryHandler(button_handler)) # ခလုတ်တွေအတွက် handler
     
-    # Flask Server ကို Background မှာ Run ခြင်း
     Thread(target=run_web_server).start()
-    
-    print("Bot is starting...")
-    # Bot ကို စတင် Run ခြင်း
     application.run_polling()
 
 if __name__ == '__main__':
