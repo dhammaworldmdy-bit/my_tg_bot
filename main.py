@@ -151,6 +151,23 @@ async def handle_order_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Clear order data after saving
         context.user_data['last_order'] = None
+        # --- Admin ဆီကို အကြောင်းကြားစာ ပို့ခြင်း ---
+ADMIN_ID = "8736423254"  # ဥပမာ - "12345678"
+
+admin_msg = (
+    f"🔔 **အော်ဒါအသစ် ရရှိပါသည်!**\n"
+    f"----------------------------\n"
+    f"🆔 Order No: {order_no}\n"
+    f"👤 Customer: {user_name}\n"
+    f"📱 Phone/Info: {user_text}\n"
+    f"📦 Product: {order_info.get('Name')} ({order_info.get('Plan')})\n"
+    f"💰 Price: {price} MMK\n"
+    f"📈 Profit: {profit} MMK\n"
+    f"----------------------------"
+)
+
+# Bot က သင့်ဆီ စာလှမ်းပို့ပါလိမ့်မယ်
+await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
 
 # --- Main Entry ---
 def main():
