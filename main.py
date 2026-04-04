@@ -14,7 +14,8 @@ app = Flask('')
 def home(): return "Bot is Alive!"
 
 def run_web_server():
-    port = int(os.environ.get('PORT', 8080))
+    # Render Dashboard က PORT variable ကို ယူသုံးဖို့ အရေးကြီးပါတယ်
+    port = int(os.environ.get('PORT', 10000)) 
     app.run(host='0.0.0.0', port=port)
 
 # --- Google Sheets Setup ---
