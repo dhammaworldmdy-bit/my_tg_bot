@@ -3,12 +3,12 @@ import json
 import gspread
 import datetime
 from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 from flask import Flask
 from threading import Thread
 
-# --- Flask Server for Render Keep-Alive ---
+# --- Flask Server ---
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is Alive!"
@@ -34,22 +34,18 @@ def get_sheets():
 
 product_sheet, order_sheet = get_sheets()
 
-def get_product_data():
-    return product_sheet.get_all_records()
-
-# --- Telegram Bot Handlers ---
+# --- Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = get_product_data()
+    data = product_sheet.get_all_records()
     categories = sorted(list(set(str(item['Category']) for item in data if item.get('Category'))))
     keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat_{cat}")] for cat in categories]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("📦 **Code Master Shop**\nအမျိုးအစားတစ်ခု ရွေးချယ်ပေးပါ -", reply_markup=reply_markup, parse_mode='Markdown')
+    await update.message.reply_text("📦 **Code Master Shop**\nအမျိုးအစား ရွေးချယ်ပါ -", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data_list = get_product_data()
+    data_list = product_sheet.get_all_records()
     parts = query.data.split("_")
     action = parts[0] 
 
@@ -58,92 +54,76 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         names = sorted(list(set(item['Name'] for item in data_list if str(item['Category']) == val)))
         keyboard = [[InlineKeyboardButton(n, callback_data=f"name_{val}_{n}")] for n in names]
         keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_start")])
-        await query.edit_message_text(text=f"📌 **{val}** အောက်ရှိ Product များ -", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await query.edit_message_text(text=f"📌 **{val}** Products:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
     elif action == "name":
         cat_v, name_v = parts[1], parts[2]
         plans = [item for item in data_list if str(item['Category']) == cat_v and str(item['Name']) == name_v]
         keyboard = [[InlineKeyboardButton(p['Plan'], callback_data=f"plan_{cat_v}_{name_v}_{p['Plan']}")] for p in plans]
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"cat_{cat_v}")])
-        await query.edit_message_text(text=f"💳 **{name_v}** အတွက် Plan ကို ရွေးပါ -", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await query.edit_message_text(text=f"💳 **{name_v}** Plan:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
     elif action == "plan":
         cat_v, name_v, plan_v = parts[1], parts[2], parts[3]
         final_item = next((i for i in data_list if str(i['Category']) == cat_v and str(i['Name']) == name_v and str(i['Plan']) == plan_v), None)
         if final_item:
             context.user_data['last_order'] = final_item
-            res = (f"✅ **{final_item['Name']}**\n"
-                   f"📝 {final_item.get('Des', '-')}\n\n"
-                   f"🔹 Plan: {final_item['Plan']}\n"
-                   f"💰 Price: {final_item['Price']} MMK\n\n"
-                   "⚠️ **အော်ဒါတင်ရန်**\n"
-                   "လူကြီးမင်း၏ ဖုန်းနံပါတ် နှင့် အချက်အလက်များကို ရိုက်ပို့ပေးပါရှင်။")
-            keyboard = [[InlineKeyboardButton("⬅️ Back to Plans", callback_data=f"name_{cat_v}_{name_v}")]]
-            await query.edit_message_text(text=res, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-    elif action == "back":
-        await start(update, context)
+            await query.edit_message_text(text=f"✅ **{final_item['Name']}**\n💰 {final_item['Price']} MMK\n\n⚠️ ဖုန်းနံပါတ် သို့မဟုတ် Game ID ရိုက်ပို့ပေးပါရှင်။", parse_mode='Markdown')
 
 async def handle_combined_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ADMIN_ID = 8736423254  
     user_id = update.effective_user.id
     user_text = update.message.text
-    user_name = update.effective_user.full_name
 
-    # --- Admin မှ Reply ပြန်လျှင် Customer ဆီ စာပို့ပေးခြင်း ---
+    # --- (A) Admin Reply Logic ---
     if user_id == ADMIN_ID and update.message.reply_to_message:
         reply_msg = update.message.reply_to_message.text
         if "User ID:" in reply_msg:
             try:
                 target_user_id = reply_msg.split("User ID:")[1].split("\n")[0].strip()
-                final_msg = f"💌 **Admin ထံမှ အကြောင်းပြန်စာ ရရှိပါသည်**\n\n{user_text}\n\n✨ **အဆင်ပြေပါစေရှင်။**"
+                final_msg = f"💌 **Admin ထံမှ အကြောင်းပြန်စာ**\n\n{user_text}\n\n✨ **အဆင်ပြေပါစေရှင်။**"
                 await context.bot.send_message(chat_id=target_user_id, text=final_msg, parse_mode='Markdown')
-                await update.message.reply_text(f"✅ User `{target_user_id}` ထံသို့ စာပို့ပြီးပါပြီ။")
-                return 
+                await update.message.reply_text(f"✅ စာပို့ပြီးပါပြီ။")
+                return
             except Exception as e:
-                print(f"Reply Error: {e}")
+                await update.message.reply_text(f"❌ Error: {e}")
+                return
 
-    # --- User မှ အော်ဒါတင်လျှင် Sheet သိမ်းပြီး Admin အကြောင်းကြားခြင်း ---
+    # --- (B) User Order Logic ---
     order_info = context.user_data.get('last_order')
     if order_info:
-        try:
-            price, cost = int(order_info.get('Price', 0)), int(order_info.get('Cost', 0))
-            profit = price - cost
-        except:
-            price, cost, profit = 0, 0, 0
-
-        order_no = len(order_sheet.get_all_values())
         now = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p")
-        new_row = [order_no, now, user_id, user_name, user_text, "-", 
-                   order_info.get('Name'), order_info.get('Plan'), price, cost, profit, "Pending"]
+        order_no = len(order_sheet.get_all_values())
+        price, cost = int(order_info.get('Price', 0)), int(order_info.get('Cost', 0))
+        
+        # Sheet သိမ်းမယ်
+        new_row = [order_no, now, user_id, update.effective_user.full_name, user_text, "-", 
+                   order_info.get('Name'), order_info.get('Plan'), price, cost, price-cost, "Pending"]
         order_sheet.append_row(new_row)
 
-        await update.message.reply_text(
-            f"✅ **လူကြီးမင်း၏ အော်ဒါ (ID: {order_no}) ကို လက်ခံရရှိပါပြီ!**\n\n"
-            f"Admin မှ အချက်အလက်များကို စစ်ဆေးပြီး အမြန်ဆုံး ဆက်သွယ်ဆောင်ရွက်ပေးပါမည်။",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text("✅ အော်ဒါတင်ခြင်း အောင်မြင်ပါသည်။")
 
-        admin_msg = (
-            f"🔔 **အော်ဒါအသစ် ရရှိပါသည်!**\n"
-            f"----------------------------\n"
-            f"🆔 Order No: {order_no}\n"
-            f"👤 Customer: {user_name}\n"
+        # Admin Notification with ForceReply
+        admin_noti = (
+            f"🔔 **အော်ဒါအသစ် (ID: {order_no})**\n"
+            f"👤 Customer: {update.effective_user.full_name}\n"
             f"🆔 User ID: {user_id}\n"
             f"📱 Info: {user_text}\n"
             f"📦 Product: {order_info.get('Name')} ({order_info.get('Plan')})\n"
-            f"💰 Price: {price} MMK\n"
-            f"📈 Profit: {profit} MMK\n"
             f"----------------------------\n"
-            f"💬 စာပြန်ရန် ဤစာကို Reply ပြန်ပြီး စာရိုက်လိုက်ပါ။"
+            f"💬 စာပြန်ရန် အောက်က အကွက်လေးမှာ တန်းရိုက်လိုက်ပါ။"
         )
-        await context.bot.send_message(chat_id=str(ADMIN_ID), text=admin_msg, parse_mode='Markdown')
+        # Admin ဆီကို စာပြန်ဖို့ အကွက်လေး တစ်ခါတည်း ဖွင့်ပေးလိုက်ခြင်း
+        await context.bot.send_message(
+            chat_id=ADMIN_ID, 
+            text=admin_noti, 
+            reply_markup=ForceReply(selective=True),
+            parse_mode='Markdown'
+        )
         context.user_data['last_order'] = None
 
-# --- Main Entry ---
+# --- Main ---
 def main():
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
-    if not TOKEN: return
     application = ApplicationBuilder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
