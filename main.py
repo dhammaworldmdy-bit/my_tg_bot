@@ -102,11 +102,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)
 
 # 3. Handle Order Message (Saving to Sheet)
+# 3. Handle Order Message (Saving to Sheet & Notify Admin)
 async def handle_order_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     user_id = update.effective_user.id
     user_name = update.effective_user.full_name
     
+    # context ထဲမှာ သိမ်းထားတဲ့ order information ကို ယူမယ်
     order_info = context.user_data.get('last_order')
     
     if order_info:
@@ -131,8 +133,8 @@ async def handle_order_message(update: Update, context: ContextTypes.DEFAULT_TYP
             now, 
             user_id, 
             user_name, 
-            user_text,    # Phone (as typed by user)
-            "-",          # Contact (Optional extra field)
+            user_text,    # Phone (Customer ရိုက်ပို့လိုက်တဲ့စာ)
+            "-",          # Contact
             order_info.get('Name'), 
             order_info.get('Plan'), 
             price, 
@@ -141,34 +143,42 @@ async def handle_order_message(update: Update, context: ContextTypes.DEFAULT_TYP
             "Pending"
         ]
 
+        # Google Sheet ထဲကို Data လှမ်းသွင်းမယ်
         order_sheet.append_row(new_row)
 
+        # Customer ဆီကို reply ပြန်မယ်
         await update.message.reply_text(
             f"✅ **လူကြီးမင်း၏ အော်ဒါ (ID: {order_no}) ကို လက်ခံရရှိပါပြီ!**\n\n"
             f"Admin မှ အချက်အလက်များကို စစ်ဆေးပြီး အမြန်ဆုံး ဆက်သွယ်ဆောင်ရွက်ပေးပါမည်။ ကျေးဇူးတင်ပါတယ်ရှင်။",
             parse_mode='Markdown'
         )
         
-        # Clear order data after saving
+        # --- Admin ဆီကို အကြောင်းကြားစာ ပို့ခြင်း (ဒီနေရာမှာပဲ ဆက်ရေးရပါမယ်) ---
+        ADMIN_ID = "8736423254" 
+
+        admin_msg = (
+            f"🔔 **အော်ဒါအသစ် ရရှိပါသည်!**\n"
+            f"----------------------------\n"
+            f"🆔 Order No: {order_no}\n"
+            f"👤 Customer: {user_name}\n"
+            f"📱 Phone/Info: {user_text}\n"
+            f"📦 Product: {order_info.get('Name')} ({order_info.get('Plan')})\n"
+            f"💰 Price: {price} MMK\n"
+            f"📈 Profit: {profit} MMK\n"
+            f"----------------------------"
+        )
+
+        # Admin ဆီကို message ပို့မယ်
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+        except Exception as e:
+            print(f"Admin Notification Error: {e}")
+
+        # နောက်ဆုံးမှ သိမ်းထားတဲ့ data ကို ဖြတ်မယ်
         context.user_data['last_order'] = None
-        # --- Admin ဆီကို အကြောင်းကြားစာ ပို့ခြင်း ---
-ADMIN_ID = "8736423254"  # ဥပမာ - "12345678"
-
-admin_msg = (
-    f"🔔 **အော်ဒါအသစ် ရရှိပါသည်!**\n"
-    f"----------------------------\n"
-    f"🆔 Order No: {order_no}\n"
-    f"👤 Customer: {user_name}\n"
-    f"📱 Phone/Info: {user_text}\n"
-    f"📦 Product: {order_info.get('Name')} ({order_info.get('Plan')})\n"
-    f"💰 Price: {price} MMK\n"
-    f"📈 Profit: {profit} MMK\n"
-    f"----------------------------"
-)
-
-# Bot က သင့်ဆီ စာလှမ်းပို့ပါလိမ့်မယ်
-await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-
+    else:
+        # ဘာမှမရွေးဘဲ စာလာရိုက်ရင် ဘာမှပြန်မလုပ်ဘူး (သို့မဟုတ်) /start နှိပ်ခိုင်းလို့ရတယ်
+        pass
 # --- Main Entry ---
 def main():
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
